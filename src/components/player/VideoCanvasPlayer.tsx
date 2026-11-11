@@ -132,22 +132,29 @@ export function VideoCanvasPlayer({
       if (clip.kind === "text" || clip.kind === "shape") {
         const style = clip.captionStyle;
         const text = clip.text ?? "";
-        context.font = `${style?.fontSize ?? 48}px ${style?.fontFamily ?? "Arial"}`;
+        const fontSize = style?.fontSize ?? 48;
+        const fontFamily = style?.fontFamily ?? "Arial";
+
+        context.font = `${fontSize}px ${fontFamily}`;
         context.textAlign = style?.align ?? "center";
         context.textBaseline = "middle";
 
         const metrics = context.measureText(text);
         const width = metrics.width + 28;
+        const boxHeight = fontSize + 18;
+
         if (style?.backgroundColor) {
           context.fillStyle = style.backgroundColor;
-          context.fillRect(-width / 2, -((style.fontSize ?? 48) + 18) / 2, width, (style.fontSize ?? 48) + 18);
+          context.fillRect(-width / 2, -boxHeight / 2, width, boxHeight);
         }
+
         if (style?.shadow) context.shadow = style.shadow;
         if (style?.strokeColor && style.strokeWidth) {
           context.lineWidth = style.strokeWidth;
           context.strokeStyle = style.strokeColor;
           context.strokeText(text, 0, 0);
         }
+
         context.fillStyle = style?.color ?? "#ffffff";
         context.fillText(text, 0, 0);
       } else {
