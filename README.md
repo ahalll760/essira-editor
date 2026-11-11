@@ -26,7 +26,14 @@ npm install
 npm run dev
 ```
 
-## Production notes
+## Deployment
+
+For Vercel, use:
+
+- Root directory: `.`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Install command: `npm install`
 
 This project is intentionally a robust foundation. Real production deployment should add:
 

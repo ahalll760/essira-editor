@@ -24,9 +24,7 @@ export function InspectorPanel() {
       </div>
       <div className="inspector-section">
         <label>Resolution</label>
-        <div>
-          {project.width}x{project.height}
-        </div>
+        <div>{project.width}x{project.height}</div>
       </div>
     </aside>
   );
