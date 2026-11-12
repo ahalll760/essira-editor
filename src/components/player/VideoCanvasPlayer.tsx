@@ -62,9 +62,9 @@ export function VideoCanvasPlayer({
 
   useEffect(() => {
     const entries = project.tracks.flatMap((track) =>
-      track.clips
-        .filter((clip) => clip.mediaUrl && (clip.kind === "video" || clip.kind === "image"))
-        .map((clip) => clip),
+      track.clips.filter(
+        (clip) => clip.mediaUrl && (clip.kind === "video" || clip.kind === "image"),
+      ),
     );
     const activeUrls = new Set(entries.map((clip) => `${clip.id}:${clip.mediaUrl}`));
 
@@ -148,7 +148,14 @@ export function VideoCanvasPlayer({
           context.fillRect(-width / 2, -boxHeight / 2, width, boxHeight);
         }
 
-        if (style?.shadow) context.shadow = style.shadow;
+        // Canvas 2D has no CSS-style `shadow` property. Use its supported
+        // shadow fields when a caption requests a shadow.
+        if (style?.shadow) {
+          context.shadowColor = "rgba(0, 0, 0, 0.7)";
+          context.shadowBlur = 6;
+          context.shadowOffsetX = 0;
+          context.shadowOffsetY = 2;
+        }
         if (style?.strokeColor && style.strokeWidth) {
           context.lineWidth = style.strokeWidth;
           context.strokeStyle = style.strokeColor;
@@ -158,7 +165,10 @@ export function VideoCanvasPlayer({
         context.fillStyle = style?.color ?? "#ffffff";
         context.fillText(text, 0, 0);
       } else {
-        if (!clip.mediaUrl) return;
+        if (!clip.mediaUrl) {
+          context.restore();
+          return;
+        }
         const key = `${clip.id}:${clip.mediaUrl}`;
         const element = mediaRef.current.get(key);
 
@@ -168,7 +178,7 @@ export function VideoCanvasPlayer({
             try {
               element.currentTime = sourceTime;
             } catch {
-              // ignore
+              // Ignore browser seek errors while metadata is unavailable.
             }
           }
           context.drawImage(element, -project.width / 2, -project.height / 2, project.width, project.height);
@@ -196,8 +206,8 @@ export function VideoCanvasPlayer({
       const tracks = [...current.tracks]
         .filter((track) => !track.hidden)
         .sort((a, b) => a.order - b.order);
-
       const hasSolo = tracks.some((track) => track.solo);
+
       for (const track of tracks) {
         if (hasSolo && !track.solo) continue;
         for (const clip of track.clips) drawClip(clip, timeRef.current);
