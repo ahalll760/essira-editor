@@ -25,18 +25,15 @@ const filterSchema = z
   })
   .strict();
 
+// Each top-level member remains a ZodObject. In Zod 3, calling refine() on a
+// union member wraps it in ZodEffects, which discriminatedUnion() rejects.
 const actionSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("CUT_CLIP"),
-      clipId: id,
-      start: time,
-      end: time,
-    })
-    .strict()
-    .refine((action) => action.end > action.start, {
-      message: "Cut end must be after start.",
-    }),
+  z.object({
+    type: z.literal("CUT_CLIP"),
+    clipId: id,
+    start: time,
+    end: time,
+  }).strict(),
 
   z.object({
     type: z.literal("TRIM_SILENCE"),
@@ -87,16 +84,11 @@ const actionSchema = z.discriminatedUnion("type", [
 
   z.object({
     type: z.literal("GENERATE_HIGHLIGHT_REEL"),
-    segments: z.array(
-      z
-        .object({
-          clipId: id,
-          start: time,
-          end: time,
-        })
-        .strict()
-        .refine((segment) => segment.end > segment.start),
-    ),
+    segments: z.array(z.object({
+      clipId: id,
+      start: time,
+      end: time,
+    }).strict()),
     name: z.string().max(120).optional(),
   }).strict(),
 ]);
@@ -150,6 +142,32 @@ export function parseAIActions(raw: string): AIAction[] {
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
       .join("; ")}`);
   }
+
+  // Cross-field checks are performed after parsing so the discriminated union
+  // remains compatible with Zod 3's requirement that its members be objects.
+  for (const [index, action] of result.data.entries()) {
+    if (action.type === "CUT_CLIP" && action.end <= action.start) {
+      throw new Error(`Invalid AI action ${index}: CUT_CLIP end must be after start.`);
+    }
+    if (action.type === "TRIM_SILENCE") {
+      for (const range of action.ranges) {
+        if (range.end <= range.start) {
+          throw new Error(`Invalid AI action ${index}: silence range end must be after start.`);
+        }
+      }
+    }
+    if (action.type === "ADD_TRANSITION" && action.duration <= 0) {
+      throw new Error(`Invalid AI action ${index}: transition duration must be greater than zero.`);
+    }
+    if (action.type === "GENERATE_HIGHLIGHT_REEL") {
+      for (const segment of action.segments) {
+        if (segment.end <= segment.start) {
+          throw new Error(`Invalid AI action ${index}: highlight segment end must be after start.`);
+        }
+      }
+    }
+  }
+
   return result.data as AIAction[];
 }
 
