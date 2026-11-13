@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { VideoCanvasPlayer } from "./components/player/VideoCanvasPlayer";
 import { executeAIResponse } from "./services/aiEngine";
 import { useTimelineStore, createEmptyProject } from "./store/timelineStore";
+import { HomePage, AUTOSAVE_KEY, AUTOSAVE_META_KEY } from "./components/home/HomePage";
 import type { Clip, Track, TrackKind } from "./types/timeline";
 
 const makeId = () => crypto.randomUUID();
@@ -10,10 +11,8 @@ const baseTransform: Clip["transform"] = {
 };
 
 function createTrack(id: string, name: string, kind: TrackKind, order: number): Track {
-  return {
-    id, name, kind, order, muted: false, solo: false, hidden: false,
-    locked: false, snapping: true, rippleEdit: false, clips: [],
-  };
+  return { id, name, kind, order, muted: false, solo: false, hidden: false,
+    locked: false, snapping: true, rippleEdit: false, clips: [] };
 }
 
 function formatTime(seconds: number): string {
@@ -24,7 +23,7 @@ function formatTime(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}:${String(frames).padStart(2, "0")}`;
 }
 
-function defaultClip(file: File, url: string, duration: number, trackId: string): Omit<Clip, "trackId"> {
+function defaultClip(file: File, url: string, duration: number): Omit<Clip, "trackId"> {
   const type = file.type.startsWith("audio/") ? "audio" : file.type.startsWith("image/") ? "image" : "video";
   return {
     id: makeId(), kind: type, name: file.name, start: 0, duration: Math.max(0.5, duration),
@@ -37,6 +36,7 @@ export default function App(): React.ReactElement {
   const project = useTimelineStore((state) => state.project);
   const past = useTimelineStore((state) => state.past);
   const future = useTimelineStore((state) => state.future);
+  const [view, setView] = useState<"home" | "editor">("home");
   const [playing, setPlaying] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePanel, setActivePanel] = useState<"media" | "text" | "ai">("media");
@@ -52,6 +52,67 @@ export default function App(): React.ReactElement {
   const selectedClip = allClips.find((clip) => clip.id === selectedClipId) ?? null;
   const timelineDuration = Math.max(project.duration, 15);
   const timelineWidth = Math.max(960, timelineDuration * zoom);
+
+  const createNewProject = ({ name, width, height }: { name: string; width: number; height: number }) => {
+    store.getState().setProject(createEmptyProject(name, width, height));
+    setSelectedClipId(null);
+    setPlaying(false);
+    setView("editor");
+  };
+
+  const openEditor = () => {
+    setView("editor");
+  };
+
+  const goHome = () => {
+    setPlaying(false);
+    setView("home");
+  };
+
+  const createProject = () => {
+    store.getState().setProject(createEmptyProject("Untitled project"));
+    setSelectedClipId(null);
+    setPlaying(false);
+  };
+
+  const loadDemo = () => {
+    createProject();
+    const videoTrackId = store.getState().addTrack("video", "Video 1");
+    const textTrackId = store.getState().addTrack("text", "Captions");
+    store.getState().addClip(videoTrackId, {
+      id: "demo-video", kind: "video", name: "Flower footage", start: 0, duration: 12, sourceStart: 0,
+      mediaUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      transform: { ...baseTransform }, filters: [], speed: 1, volume: 1, pan: 0, keyframes: {},
+    });
+    store.getState().addClip(textTrackId, {
+      id: "demo-caption", kind: "text", name: "Opening title", start: 0.5, duration: 3, sourceStart: 0,
+      text: "A moment in bloom", transform: { ...baseTransform, y: 350 }, filters: [], speed: 1,
+      volume: 1, pan: 0, keyframes: {}, captionStyle: { fontFamily: "Arial", fontSize: 54, color: "#ffffff", strokeColor: "#111827", strokeWidth: 3, align: "center" },
+    });
+    setZoom(70);
+    setView("editor");
+  };
+
+  // Autosave editor progress so the home screen can offer to restore it.
+  useEffect(() => {
+    if (view !== "editor") return;
+    if (project.tracks.length === 0) return;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(project));
+        localStorage.setItem(AUTOSAVE_META_KEY, JSON.stringify({
+          id: project.id,
+          name: project.name,
+          savedAt: Date.now(),
+          aspect: `${project.width}×${project.height}`,
+          clipCount: project.tracks.reduce((total, track) => total + track.clips.length, 0),
+        }));
+      } catch {
+        // localStorage can exceed quota with large media URLs; ignore write failures.
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [view, project]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -71,6 +132,16 @@ export default function App(): React.ReactElement {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedClipId, store]);
+
+  if (view === "home") {
+    return (
+      <HomePage
+        onCreateProject={createNewProject}
+        onContinueProject={openEditor}
+        onLoadDemo={loadDemo}
+      />
+    );
+  }
 
   const seekFromPointer = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -107,7 +178,7 @@ export default function App(): React.ReactElement {
         });
       }
       const start = store.getState().project.playhead;
-      const clip = defaultClip(file, url, duration, track.id);
+      const clip = defaultClip(file, url, duration);
       store.getState().addClip(track.id, { ...clip, start });
       setSelectedClipId(clip.id);
     }
@@ -131,33 +202,9 @@ export default function App(): React.ReactElement {
     setActivePanel("text");
   };
 
-  const createProject = () => {
-    store.getState().setProject(createEmptyProject("Untitled project"));
-    setSelectedClipId(null);
-    setPlaying(false);
-  };
-
-  const loadDemo = () => {
-    createProject();
-    const videoTrackId = store.getState().addTrack("video", "Video 1");
-    const textTrackId = store.getState().addTrack("text", "Captions");
-    store.getState().addClip(videoTrackId, {
-      id: "demo-video", kind: "video", name: "Flower footage", start: 0, duration: 12, sourceStart: 0,
-      mediaUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-      transform: { ...baseTransform }, filters: [], speed: 1, volume: 1, pan: 0, keyframes: {},
-    });
-    store.getState().addClip(textTrackId, {
-      id: "demo-caption", kind: "text", name: "Opening title", start: 0.5, duration: 3, sourceStart: 0,
-      text: "A moment in bloom", transform: { ...baseTransform, y: 350 }, filters: [], speed: 1,
-      volume: 1, pan: 0, keyframes: {}, captionStyle: { fontFamily: "Arial", fontSize: 54, color: "#ffffff", strokeColor: "#111827", strokeWidth: 3, align: "center" },
-    });
-    setZoom(70);
-  };
-
   const splitSelected = () => {
     if (!selectedClip) return;
-    try { store.getState().splitClip(selectedClip.id, project.playhead); }
-    catch (error) { setAiMessage(error instanceof Error ? error.message : "Could not split clip."); }
+    try { store.getState().splitClip(selectedClip.id, project.playhead); } catch (error) { setAiMessage(error instanceof Error ? error.message : "Could not split clip."); }
   };
 
   const runAI = () => {
@@ -188,6 +235,7 @@ export default function App(): React.ReactElement {
   };
 
   const stopDrag = () => { dragRef.current = null; };
+
   const applyDemoAI = () => {
     const firstVideo = project.tracks.find((track) => track.kind === "video")?.clips[0];
     if (!firstVideo) { setAiMessage("Add or import a video clip before applying this sample action."); return; }
@@ -197,7 +245,7 @@ export default function App(): React.ReactElement {
   return (
     <div className="studio-shell">
       <header className="studio-topbar">
-        <button className="brand-mark" onClick={createProject} aria-label="New project">E</button>
+        <button className="brand-mark" onClick={goHome} aria-label="Back to home screen">E</button>
         <div className="project-title"><strong>ESSIRA</strong><span>Video studio</span></div>
         <span className="topbar-divider" />
         <input className="project-name" aria-label="Project name" value={project.name} onChange={(event) => store.getState().setProject({ ...project, name: event.target.value })} />
@@ -224,12 +272,12 @@ export default function App(): React.ReactElement {
             <button className="import-drop" onClick={() => fileInputRef.current?.click()}><b>＋</b><strong>Import media</strong><span>Video, audio, or images</span></button>
             <div className="asset-list">
               {allClips.filter((clip) => clip.mediaUrl).map((clip) => <button className="asset-item" key={clip.id} onClick={() => { setSelectedClipId(clip.id); store.getState().setPlayhead(clip.start); }}><span className={`asset-thumb ${clip.kind}`}>{clip.kind === "audio" ? "♫" : clip.kind === "image" ? "▧" : "▶"}</span><span className="asset-copy"><strong>{clip.name}</strong><small>{clip.kind} · {clip.duration.toFixed(1)}s</small></span><span className="asset-add" onClick={(event) => { event.stopPropagation(); const track = store.getState().project.tracks.find((item) => item.kind === (clip.kind === "audio" ? "audio" : clip.kind === "image" ? "overlay" : "video")); if (track) store.getState().addClip(track.id, { ...clip, id: makeId(), trackId: track.id, start: project.playhead }); }}>＋</span></button>)}
-              {allClips.filter((clip) => clip.mediaUrl).length === 0 && <p className="empty-hint">Your imported assets will appear here. Try the demo project to explore the timeline.</p>}
+              {allClips.filter((clip) => clip.mediaUrl).length === 0 && <p className="empty-hint">Your imported assets will appear here. Try the sample project to explore the timeline.</p>}
             </div>
             <button className="button button-outline full-width" onClick={loadDemo}>Load sample project</button>
           </>}
           {activePanel === "text" && <div className="panel-content"><p className="muted-copy">Add titles and captions to the selected timeline.</p><button className="button button-primary full-width" onClick={addText}>＋ Add title</button>{selectedClip?.kind === "text" && <label className="field-label">Text<textarea value={selectedClip.text ?? ""} onChange={(event) => updateSelected({ text: event.target.value, name: event.target.value.slice(0, 28) || "Title" })} /></label>}</div>}
-          {activePanel === "ai" && <div className="panel-content"><div className="ai-badge">✦ Timeline copilot</div><p className="muted-copy">Paste a validated action JSON array to apply edits. AI model calls are not connected yet.</p><textarea className="ai-input" value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder={'[{"type":"APPLY_FILTER","clipId":"…","filter":{"type":"saturation","value":120,"enabled":true}}]'} /><button className="button button-primary full-width" onClick={runAI}>Apply actions</button><button className="text-button" onClick={applyDemoAI}>Create sample filter action</button>{aiMessage && <p className="status-message">{aiMessage}</p>}</div>}
+          {activePanel === "ai" && <div className="panel-content"><div className="ai-badge">✦ Timeline copilot</div><p className="muted-copy">Paste a validated action JSON array to apply edits. AI model calls are not connected yet.</p><textarea className="ai-input" value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder='[{"type":"APPLY_FILTER","clipId":"…","filter":{"type":"saturation","value":120,"enabled":true}}]' /><button className="button button-primary full-width" onClick={runAI}>Apply actions</button><button className="text-button" onClick={applyDemoAI}>Create sample filter action</button>{aiMessage && <p className="status-message">{aiMessage}</p>}</div>}
         </section>
 
         <section className="work-area">
@@ -238,7 +286,7 @@ export default function App(): React.ReactElement {
           <div className="playback-footer"><span>Preview quality <strong>Full</strong></span><span>⤢ Fit</span></div>
 
           <section className="timeline-panel">
-            <div className="timeline-toolbar"><div className="timeline-actions"><span className="eyebrow">TIMELINE</span><button className="icon-button" onClick={() => addTrack("video")} title="Add video track">＋ Video</button><button className="icon-button" onClick={() => addTrack("audio")} title="Add audio track">＋ Audio</button><button className="icon-button" onClick={addText} title="Add text track">＋ Text</button><button className="icon-button" onClick={splitSelected} disabled={!selectedClip} title="Split selected clip at playhead">✂ Split</button><button className="icon-button" onClick={() => selectedClip && setSelectedClipId(store.getState().duplicateClip(selectedClip.id))} disabled={!selectedClip} title="Duplicate selected clip">▢ Duplicate</button><button className="icon-button danger-action" onClick={() => { if (selectedClip) store.getState().deleteClip(selectedClip.id); setSelectedClipId(null); }} disabled={!selectedClip} title="Delete selected clip">⌫</button></div><label className="zoom-control">−<input aria-label="Timeline zoom" type="range" min="25" max="150" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />＋</label></div>
+            <div className="timeline-toolbar"><div className="timeline-actions"><span className="eyebrow">TIMELINE</span><button className="icon-button" onClick={() => addTrack("video")} title="Add video track">＋ Video</button><button className="icon-button" onClick={() => addTrack("audio")} title="Add audio track">＋ Audio</button><button className="icon-button" onClick={addText} title="Add text track">＋ Text</button><button className="icon-button" onClick={splitSelected} disabled={!selectedClip} title="Split selected clip at playhead">✂ Split</button><button className="icon-button" onClick={() => selectedClip && setSelectedClipId(store.getState().duplicateClip(selectedClip.id))} disabled={!selectedClip} title="Duplicate selected clip">▢ Duplicate</button><button className="icon-button danger-action" onClick={() => { if (selectedClip) { store.getState().deleteClip(selectedClip.id); setSelectedClipId(null); } }} disabled={!selectedClip} title="Delete selected clip">⌫</button></div><label className="zoom-control">−<input aria-label="Timeline zoom" type="range" min="25" max="150" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />＋</label></div>
             <div className="timeline-scroller" ref={timelineRef}>
               <div className="timeline-content" style={{ width: `${timelineWidth}px` }}>
                 <div className="ruler-row"><div className="track-label ruler-label">Time</div><div className="ruler" onPointerDown={seekFromPointer}>{Array.from({ length: Math.ceil(timelineDuration / 5) + 1 }, (_, index) => <span className="ruler-tick" key={index} style={{ left: `${index * 5 * zoom}px` }}>{formatTime(index * 5)}</span>)}<div className="playhead-line" style={{ left: `${project.playhead * zoom}px` }} /></div></div>
@@ -269,7 +317,7 @@ export default function App(): React.ReactElement {
             <label className="field-label slider-field">Opacity <span>{Math.round(selectedClip.transform.opacity * 100)}%</span><input type="range" min="0" max="1" step="0.01" value={selectedClip.transform.opacity} onChange={(event) => updateSelected({ transform: { ...selectedClip.transform, opacity: Number(event.target.value) } })} /></label>
             <div className="inspector-section-title">Playback</div>
             <label className="field-label">Speed<input type="number" min="0.1" max="8" step="0.1" value={selectedClip.speed} onChange={(event) => updateSelected({ speed: Math.max(0.1, Number(event.target.value)) })} /></label>
-            <label className="field-label">Volume <span>{Math.round(selectedClip.volume * 100)}%</span><input type="range" min="0" max="1" step="0.01" value={selectedClip.volume} onChange={(event) => updateSelected({ volume: Number(event.target.value) })} /></label>
+            <label className="field-label slider-field">Volume <span>{Math.round(selectedClip.volume * 100)}%</span><input type="range" min="0" max="1" step="0.01" value={selectedClip.volume} onChange={(event) => updateSelected({ volume: Number(event.target.value) })} /></label>
             <button className="button button-outline full-width" onClick={() => { store.getState().deleteClip(selectedClip.id); setSelectedClipId(null); }}>Delete clip</button>
           </div>}
         </aside>
