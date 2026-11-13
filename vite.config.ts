@@ -6,4 +6,16 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  build: {
+    sourcemap: false,
+    target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          validation: ["zod"],
+        },
+      },
+    },
+  },
 });
