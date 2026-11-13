@@ -120,6 +120,18 @@ export interface CaptionSegment {
   text: string;
 }
 
+export interface OrganiseMove {
+  clipId: Id;
+  from: number;
+  to: number;
+}
+
+export interface OrganiseReportData {
+  movedClips: OrganiseMove[];
+  removedGaps: number;
+  trackNames: string[];
+}
+
 export type AIAction =
   | { type: "CUT_CLIP"; clipId: Id; start: number; end: number }
   | { type: "TRIM_SILENCE"; clipId: Id; ranges: SilenceRange[]; minDuration?: number }
@@ -127,4 +139,5 @@ export type AIAction =
   | { type: "APPLY_FILTER"; clipId: Id; filter: Omit<Filter, "id"> }
   | { type: "AUTO_DUCK_AUDIO"; targetTrackId: Id; speechTrackId: Id; duckVolume: number; attack?: number; release?: number }
   | { type: "ADD_TRANSITION"; fromClipId: Id; toClipId: Id; duration: number; transitionType: Transition["type"] }
-  | { type: "GENERATE_HIGHLIGHT_REEL"; segments: Array<{ clipId: Id; start: number; end: number }>; name?: string };
+  | { type: "GENERATE_HIGHLIGHT_REEL"; segments: Array<{ clipId: Id; start: number; end: number }>; name?: string }
+  | { type: "ORGANISE_TIMELINE"; report: OrganiseReportData };
