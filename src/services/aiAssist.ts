@@ -39,6 +39,18 @@ export interface TrimSuggestion {
   reason: string;
 }
 
+export interface OrganiseMove {
+  clipId: string;
+  from: number;
+  to: number;
+}
+
+export interface OrganiseReportData {
+  movedClips: OrganiseMove[];
+  removedGaps: number;
+  trackNames: string[];
+}
+
 const makeId = (): string => crypto.randomUUID();
 
 function clipsOnTrack(project: ProjectState, trackId: string): Clip[] {
@@ -143,14 +155,8 @@ export function suggestSmartTrims(project: ProjectState): Suggestion<TrimSuggest
  * reordering payload that removes gaps between clips on every visual track
  * (magnetic-timeline style cleanup).
  */
-export interface OrganiseReport {
-  movedClips: Array<{ clipId: string; from: number; to: number }>;
-  removedGaps: number;
-  trackNames: string[];
-}
-
-export function organiseTimeline(project: ProjectState): Suggestion<OrganiseReport> {
-  const movedClips: OrganiseReport["movedClips"] = [];
+export function organiseTimeline(project: ProjectState): Suggestion<OrganiseReportData> {
+  const movedClips: OrganiseMove[] = [];
   let removedGaps = 0;
 
   for (const track of project.tracks) {
@@ -177,8 +183,12 @@ export function organiseTimeline(project: ProjectState): Suggestion<OrganiseRepo
   };
 }
 
-export function applyOrganise(project: ProjectState, report: OrganiseReport): void {
-  for (const move of report.payload.movedClips) {
+/**
+ * Apply a magnetic-timeline organisation report in place. Accepts the raw
+ * report data used by the ORGANISE_TIMELINE AI action.
+ */
+export function applyOrganise(project: ProjectState, report: OrganiseReportData): void {
+  for (const move of report.movedClips) {
     const clip = project.tracks
       .flatMap((track) => track.clips)
       .find((candidate) => candidate.id === move.clipId);
@@ -297,7 +307,6 @@ export function suggestNextSteps(assignment: HomeworkAssignment): ProgressInsigh
   const insights: ProgressInsight[] = [];
   const done = assignment.tasks.filter((task) => task.done);
   const remaining = assignment.tasks.filter((task) => !task.done);
-  const totalMinutes = assignment.tasks.reduce((sum, task) => sum + task.estimateMinutes, 0);
   const remainingMinutes = remaining.reduce((sum, task) => sum + task.estimateMinutes, 0);
 
   const dueMs = new Date(`${assignment.dueDate}T23:59:59`).getTime();
