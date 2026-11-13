@@ -10,6 +10,7 @@ import type {
   TrackKind,
   Transition,
 } from "../types/timeline";
+import { applyOrganise } from "../services/aiAssist";
 
 const makeId = (): Id => crypto.randomUUID();
 
@@ -233,6 +234,10 @@ function applyAction(project: ProjectState, action: AIAction): void {
         cursor += duration;
       }
       project.tracks.push(track);
+      break;
+    }
+    case "ORGANISE_TIMELINE": {
+      applyOrganise(project, { movedClips: action.report.movedClips, removedGaps: action.report.removedGaps, trackNames: action.report.trackNames });
       break;
     }
   }
