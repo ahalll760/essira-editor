@@ -95,6 +95,55 @@ const actionSchema = z.discriminatedUnion("type", [
 
 const actionsSchema = z.array(actionSchema).max(500);
 
+export const AI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
+
+export interface CallAIOptions {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  system: string;
+  user: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Thin bridge to an OpenAI-compatible chat completions endpoint. The key is
+ * supplied by the user in Settings and only used for this browser session.
+ */
+export async function callAI(options: CallAIOptions): Promise<string> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: options.model,
+      temperature: options.temperature,
+      messages: [
+        { role: "system", content: options.system },
+        { role: "user", content: options.user },
+      ],
+    }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const hint = response.status === 401 ? " — check your API key in Settings." : "";
+    throw new Error(
+      `AI request failed with status ${response.status}${hint}${detail ? `: ${detail.slice(0, 200)}` : ""}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("The AI model returned an empty response.");
+  return content;
+}
+
 export function buildSystemPrompt(project: ProjectState): string {
   const clips = project.tracks.flatMap((track) =>
     track.clips.map((clip) => ({
@@ -108,9 +157,11 @@ export function buildSystemPrompt(project: ProjectState): string {
   );
 
   return [
-    "You are an editing assistant. Return only a JSON array of timeline actions.",
+    "You are an editing assistant inside Essira Editor, a browser-based video editor.",
+    "Return only a JSON array of timeline actions.",
     "Use only the supported action types and exact IDs supplied in the project context.",
     "All times are project seconds. Do not invent IDs, media URLs, or unsupported fields.",
+    "You can also help plan editing homework: when asked, suggest ordered steps for jobs like a clean edit pass or a social media pack.",
     "Action schema examples:",
     JSON.stringify([
       { type: "CUT_CLIP", clipId: "clip-id", start: 2, end: 3 },
