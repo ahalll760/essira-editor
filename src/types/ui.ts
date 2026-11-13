@@ -1,10 +1,7 @@
-export type ViewName = "home" | "studio";
+export type ViewName = "home" | "studio" | "homework";
 
-export type ModalName = "export" | "ai" | "settings" | "homework" | "about" | "import";
-
-export type ModalTab = "timeline" | "paste" | "chat";
+export type ModalName = "export" | "settings" | "about";
 
 export interface ModalState {
   name: ModalName;
-  tab?: ModalTab;
 }
