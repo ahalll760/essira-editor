@@ -1,17 +1,23 @@
 import { create } from "zustand";
 import type {
   AIAction,
+  AIMessage,
+  AISession,
+  AISettings,
   CaptionStyle,
   Clip,
   Filter,
+  HomeworkItem,
   Id,
   ProjectState,
+  Suggestion,
   Track,
   TrackKind,
   Transition,
 } from "../types/timeline";
 
 const makeId = (): Id => crypto.randomUUID();
+const nowIso = (): string => new Date().toISOString();
 
 const defaultTransform: Clip["transform"] = {
   x: 0,
@@ -40,6 +46,26 @@ export function createEmptyProject(
     zoom: 80,
     tracks: [],
     transitions: [],
+  };
+}
+
+export function createDefaultAiSettings(): AISettings {
+  return { apiKey: "", model: "gpt-4o-mini", temperature: 0.2, autoSuggest: true };
+}
+
+export function createDefaultAiSession(): AISession {
+  return {
+    id: makeId(),
+    title: "Editing assistant",
+    createdAt: nowIso(),
+    messages: [
+      {
+        id: makeId(),
+        role: "ai",
+        time: nowIso(),
+        text: "Hi! I'm your editing assistant. Ask me to cut a clip, remove silence, add captions, build a highlight reel, or plan homework for this project. Try: \"cut the first clip between 2 and 3 seconds\".",
+      },
+    ],
   };
 }
 
@@ -242,10 +268,22 @@ export interface TimelineStore {
   project: ProjectState;
   past: ProjectState[];
   future: ProjectState[];
+  selectedClipId: Id | null;
+  lastSavedAt: string;
+  aiSettings: AISettings;
+  aiSession: AISession;
+  homework: HomeworkItem[];
+  suggestions: Suggestion[];
+  aiBusy: boolean;
+  aiStatus: string | null;
   setProject(project: ProjectState): void;
+  updateProject(patch: Partial<Pick<ProjectState, "name" | "width" | "height" | "frameRate">>): void;
+  createNewProject(): void;
+  markSaved(): void;
   setPlayhead(time: number): void;
   setZoom(zoom: number): void;
   addTrack(kind: TrackKind, name?: string): Id;
+  deleteTrack(trackId: Id): void;
   updateTrack(trackId: Id, patch: Partial<Track>): void;
   addClip(trackId: Id, clip: Omit<Clip, "trackId">): void;
   updateClip(clipId: Id, patch: Partial<Clip>): void;
@@ -257,6 +295,16 @@ export interface TimelineStore {
   executeAI(actions: AIAction[]): void;
   undo(): void;
   redo(): void;
+  setSelectedClip(clipId: Id | null): void;
+  setAiSettings(patch: Partial<AISettings>): void;
+  pushAiMessage(message: { role: AIMessage["role"]; text: string; actionCount?: number }): void;
+  clearAiSession(): void;
+  addHomework(item: HomeworkItem): void;
+  updateHomework(homeworkId: Id, patch: Partial<Pick<HomeworkItem, "title" | "description" | "dueDate" | "status">>): void;
+  removeHomework(homeworkId: Id): void;
+  toggleHomeworkStep(homeworkId: Id, stepId: Id): void;
+  setSuggestions(suggestions: Suggestion[]): void;
+  setAiBusy(busy: boolean, status?: string): void;
 }
 
 export const useTimelineStore = create<TimelineStore>((set, get) => {
@@ -270,12 +318,32 @@ export const useTimelineStore = create<TimelineStore>((set, get) => {
   };
 
   return {
-    project: createEmptyProject(), past: [], future: [],
+    project: createEmptyProject(),
+    past: [],
+    future: [],
+    selectedClipId: null,
+    lastSavedAt: nowIso(),
+    aiSettings: createDefaultAiSettings(),
+    aiSession: createDefaultAiSession(),
+    homework: [],
+    suggestions: [],
+    aiBusy: false,
+    aiStatus: null,
+
     setProject(project) { set({ project: structuredClone(project), past: [], future: [] }); },
+    updateProject(patch) { set((state) => ({ project: { ...state.project, ...patch } })); },
+    createNewProject() {
+      set({ project: createEmptyProject(), past: [], future: [], selectedClipId: null });
+      get().markSaved();
+    },
+    markSaved() { set({ lastSavedAt: nowIso() }); },
+
     setPlayhead(time) {
       set((state) => ({ project: { ...state.project, playhead: Math.max(0, Math.min(time, state.project.duration)) } }));
     },
-    setZoom(zoom) { set((state) => ({ project: { ...state.project, zoom: Math.min(400, Math.max(20, zoom)) } })); },
+    setZoom(zoom) {
+      set((state) => ({ project: { ...state.project, zoom: Math.min(400, Math.max(8, zoom)) } }));
+    },
     addTrack(kind, name) {
       const id = makeId();
       edit((project) => project.tracks.push({
@@ -283,6 +351,17 @@ export const useTimelineStore = create<TimelineStore>((set, get) => {
         muted: false, solo: false, hidden: false, locked: false, snapping: true, rippleEdit: false, clips: [],
       }));
       return id;
+    },
+    deleteTrack(trackId) {
+      edit((project) => {
+        const track = project.tracks.find((candidate) => candidate.id === trackId);
+        if (!track) return;
+        const clipIds = new Set(track.clips.map((clip) => clip.id));
+        project.tracks = project.tracks.filter((candidate) => candidate.id !== trackId);
+        project.transitions = project.transitions.filter(
+          (transition) => !clipIds.has(transition.fromClipId) && !clipIds.has(transition.toClipId),
+        );
+      });
     },
     updateTrack(trackId, patch) {
       edit((project) => {
@@ -357,5 +436,45 @@ export const useTimelineStore = create<TimelineStore>((set, get) => {
         return { project: next, past: [...state.past, state.project], future: state.future.slice(1) };
       });
     },
+
+    setSelectedClip(clipId) { set({ selectedClipId: clipId }); },
+    setAiSettings(patch) { set((state) => ({ aiSettings: { ...state.aiSettings, ...patch } })); },
+    pushAiMessage(message) {
+      set((state) => ({
+        aiSession: {
+          ...state.aiSession,
+          messages: [
+            ...state.aiSession.messages,
+            { id: makeId(), time: nowIso(), role: message.role, text: message.text, actionCount: message.actionCount },
+          ],
+        },
+      }));
+    },
+    clearAiSession() { set({ aiSession: createDefaultAiSession() }); },
+    addHomework(item) {
+      set((state) => ({ homework: [structuredClone(item), ...state.homework] }));
+    },
+    updateHomework(homeworkId, patch) {
+      set((state) => ({
+        homework: state.homework.map((item) => (item.id === homeworkId ? { ...item, ...patch } : item)),
+      }));
+    },
+    removeHomework(homeworkId) {
+      set((state) => ({ homework: state.homework.filter((item) => item.id !== homeworkId) }));
+    },
+    toggleHomeworkStep(homeworkId, stepId) {
+      set((state) => ({
+        homework: state.homework.map((item) =>
+          item.id === homeworkId
+            ? {
+                ...item,
+                steps: item.steps.map((step) => (step.id === stepId ? { ...step, done: !step.done } : step)),
+              }
+            : item,
+        ),
+      }));
+    },
+    setSuggestions(suggestions) { set({ suggestions }); },
+    setAiBusy(busy, status) { set({ aiBusy: busy, aiStatus: busy ? (status ?? "Working...") : null }); },
   };
 });

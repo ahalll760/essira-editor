@@ -128,3 +128,61 @@ export type AIAction =
   | { type: "AUTO_DUCK_AUDIO"; targetTrackId: Id; speechTrackId: Id; duckVolume: number; attack?: number; release?: number }
   | { type: "ADD_TRANSITION"; fromClipId: Id; toClipId: Id; duration: number; transitionType: Transition["type"] }
   | { type: "GENERATE_HIGHLIGHT_REEL"; segments: Array<{ clipId: Id; start: number; end: number }>; name?: string };
+
+export interface AISettings {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  autoSuggest: boolean;
+}
+
+export interface AIMessage {
+  id: Id;
+  role: "user" | "ai";
+  text: string;
+  time: string;
+  actionCount?: number;
+}
+
+export interface AISession {
+  id: Id;
+  title: string;
+  createdAt: string;
+  messages: AIMessage[];
+}
+
+export type AITaskKind = "timeline" | "homework";
+
+export interface AITask {
+  id: string;
+  kind: AITaskKind;
+  title: string;
+  description: string;
+}
+
+export interface HomeworkStep {
+  id: Id;
+  text: string;
+  done: boolean;
+  runTaskId?: string;
+}
+
+export type HomeworkStatus = "todo" | "in-progress" | "done";
+
+export interface HomeworkItem {
+  id: Id;
+  title: string;
+  description: string;
+  kind: AITaskKind;
+  dueDate: string;
+  status: HomeworkStatus;
+  steps: HomeworkStep[];
+  createdAt: string;
+}
+
+export interface Suggestion {
+  id: Id;
+  label: string;
+  kind: AITaskKind;
+  taskId: string;
+}
